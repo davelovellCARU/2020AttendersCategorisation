@@ -98,11 +98,35 @@ Okay this might get confusing: first, find all existing permutations. Then, find
 ```{r permutations}
 permutations <- oldAttenders %>% group_by_all %>% summarise(n())
 
+### Function for determining mode
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
 permutations %>%
-  group_by_at(vars(-class1)) %>% 
-  summarise(class1sAssigned = length(unique(class1))) %>% 
-  arrange(class1sAssigned, -`n()`) %>% View()
+  group_by_at(vars(-`n()`)) %>%
+  summarise(total = sum(`n()`)) %>% 
+  group_by_at(vars(-total, -class1)) %>% 
+  summarise(biggest = max(total),
+            mode = Mode(class1),
+            percentage = max(total) / sum(total) * 100) %>% 
+  View
+
+
+  # summarise(class1sAssigned = length(unique(class1)), `n()` = sum(`n()`)) %>% 
+  # arrange(class1sAssigned, -`n()`) %>%
+  # filter(class1sAssigned == 1) %>% 
+  # select(- class1sAssigned) %>% 
+  # left_join(oldAttenders, by = c("churchBackground", "statusChild", "statusTeen", "statusYoung", "statusAdult")) %>% 
+  # distinct %>% 
+  # arrange(-`n()`, class1) %>% 
+  # View
 ```
+
+* Find 'pure' cases
+* Find 'edge' cases
+* Are these labels wrong? complexNon seems incorrect.
 ```{r obsolete}
 # 
 # oldAttenders$class1 %>% is.na %>% sum
