@@ -34,20 +34,29 @@ if(file.exists(fileInO))
 }
 
 glimpse(oldAttenders)
+
+newAttenders <- readRDS(here::here("data/2020attenders.rdat"))
+## Also load the 2020 data
 ```
 
 For this exercise, we'll only need some of the data
 
 ```{r dropBareCols}
-oldAttenders %<>%
-  select(responseType, ageGroup, regularity, transferStatus, transferReason, transferOther, childStatus, teenStatus, youngStatus, adultStatus, class1, class2, x10Years, christian, becameChristianHere)
+# Little bit of implicit renaming for tranche compatibility
+# oldAttenders %<>% select(responseType, ageGroup, regularity, transferStatus, transferReason, transferOther, christian, class1, class2
+#                          becameHere = becameChristianHere,
+#                          statusChild = childStatus,
+#                          statusTeen = teenStatus,
+#                          statusYoung = youngStatus,
+#                          statusAdult = adultStatus)
   
+oldAttenders %<>%
+  select(ageGroup, transferStatus, churchBackground, class1, class2)
 ```
 
-Rename everything for consistency 
-
+Filter out under fives
 ```{r renaming}
-
+oldAttenders %<>% filter(ageGroup == "under5")
 ```
 ```{r obsolete}
 # 
