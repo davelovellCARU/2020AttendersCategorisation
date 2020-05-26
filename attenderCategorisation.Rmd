@@ -14,6 +14,7 @@ library("dplyr")
 library("here")
 library("magrittr")
 library("forcats")
+library("purrr")
 ```
 ## Some Old Code
 
@@ -52,17 +53,56 @@ For this exercise, we'll only need some of the data
 #                          statusAdult = adultStatus)
 
 ## Mutate factor levels for consistency
-oldAttenders %<>% filter(ageGroup == "under5")
+oldAttenders %<>% filter(ageGroup != "under5")
+oldAttenders %<>% filter(responseType == "adult")
+# oldAttenders %<>% filter(transferReason != "other")
 oldAttenders %<>% mutate(churchBackground = transferStatus %>%
                            fct_recode("churched" = "fromChurch", 
                                        "deChurched" = "fromBreak",
                                        "blending" = "twoChurches", 
                                        "nonChurched" = "firstChurch"))
+oldAttenders %<>% select(- transferStatus)
 oldAttenders %<>%
-  select(transferStatus, churchBackground, class1)
+  select(churchBackground,
+         statusChild = childStatus,
+         statusTeen = teenStatus,
+         statusYoung = youngStatus,
+         statusAdult = adultStatus,
+         class1)
 ```
 
+And now a special function which gets the 'funky' church histories removed
 
+```{r removeFunkyHistories}
+## This function looks at the life-stage data and flags anything which has an NA _before_ the latest entry (i.e. incomplete data)
+determineFunkiness <- function(someData){
+  someData %<>% 
+    mutate(isFunky = 
+             pmap_lgl(list(statusChild, statusTeen, statusYoung, statusAdult),
+             ~ {
+               if(all(is.na(c(..1, ..2, ..3, ..4)))) NA else { 
+               c(..1, ..2, ..3, ..4) %>% 
+                 (negate(is.na)) %>% 
+                 which %>% 
+                 {!(all(. == 1:max(.)))}}}))
+  return(someData)
+}
+
+oldAttenders %<>% determineFunkiness
+oldAttenders %<>% filter(!isFunky)
+oldAttenders %<>% select(-isFunky)
+```
+
+Okay this might get confusing: first, find all existing permutations. Then, find any permutations which **always** result in the same `class1` designation
+
+```{r permutations}
+permutations <- oldAttenders %>% group_by_all %>% summarise(n())
+
+permutations %>%
+  group_by_at(vars(-class1)) %>% 
+  summarise(class1sAssigned = length(unique(class1))) %>% 
+  arrange(class1sAssigned, -`n()`) %>% View()
+```
 ```{r obsolete}
 # 
 # oldAttenders$class1 %>% is.na %>% sum
