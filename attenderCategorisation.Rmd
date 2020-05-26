@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library("dplyr")
 library("here")
 library("magrittr")
+library("forcats")
 ```
 ## Some Old Code
 
@@ -49,15 +50,19 @@ For this exercise, we'll only need some of the data
 #                          statusTeen = teenStatus,
 #                          statusYoung = youngStatus,
 #                          statusAdult = adultStatus)
-  
+
+## Mutate factor levels for consistency
+oldAttenders %<>% filter(ageGroup == "under5")
+oldAttenders %<>% mutate(churchBackground = transferStatus %>%
+                           fct_recode("churched" = "fromChurch", 
+                                       "deChurched" = "fromBreak",
+                                       "blending" = "twoChurches", 
+                                       "nonChurched" = "firstChurch"))
 oldAttenders %<>%
-  select(ageGroup, transferStatus, churchBackground, class1, class2)
+  select(transferStatus, churchBackground, class1)
 ```
 
-Filter out under fives
-```{r renaming}
-oldAttenders %<>% filter(ageGroup == "under5")
-```
+
 ```{r obsolete}
 # 
 # oldAttenders$class1 %>% is.na %>% sum
