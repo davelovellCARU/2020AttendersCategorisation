@@ -61,9 +61,26 @@ oldAttenders %<>% rename("statusChild" = "childStatus",
                          "statusTeen" = "teenStatus", 
                          "statusYoung" = "youngStatus",
                          "statusAdult" = "adultStatus")
+oldAttenders %<>% mutate(ageGroup = 
+                           fct_recode(ageGroup,
+                                      "0-4" = "under5"))
 
+### Get rid of children
 oldAttendersAdult <- oldAttenders %>%  
-  filter(ageGroup != "under5", responseType == "adult")
+  filter(ageGroup != "0-4", responseType == "adult")
+
+### Get rid of responses which can be assigned class1: broughtUp
+
+oldAttendersAdult %<>% 
+  filter(!(ageGroup %in% c("0-4", "5-10", "11-15") & # under 16 years old
+           regularity %in% c("almostAlways", "halfTime", "fewTimes") & # attend at least a few times a year
+           transferReason == "grewUp")) # say they grew up here
+
+### Get rid of everyone who's certifiably 'churchedChurched'
+
+oldAttendersAdult %<>%
+  filter(all(c(statusChild, statusTeen, statusYoung, statusAdult) %in% c("church", NA)) &
+           churchBackground %in% c("blending", "churched"))
 
 oldAttendersAdult %<>%
   select(churchBackground,
