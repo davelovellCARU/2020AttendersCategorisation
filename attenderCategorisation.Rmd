@@ -22,8 +22,6 @@ library("purrr")
 ##  black-box reverse engineering the church background categories
 ## DL 190912
 
-# dir("rdats")
-
 fileInO <- "O:\\WCC\\Learning and Development\\Research\\PROJECT - Portsmouth 2019 onwards\\Strand 1 - Leaders and Attenders Surveys\\Data\\2018 Data Processing\\rdats\\attenders05-190911 fixing ages.rdat"
 
 if(file.exists(fileInO))
@@ -53,21 +51,26 @@ For this exercise, we'll only need some of the data
 #                          statusAdult = adultStatus)
 
 ## Mutate factor levels for consistency
-oldAttenders %<>% filter(ageGroup != "under5")
-oldAttenders %<>% filter(responseType == "adult")
-# oldAttenders %<>% filter(transferReason != "other")
-oldAttenders %<>% mutate(churchBackground = transferStatus %>%
+oldAttenders  %<>% mutate(churchBackground = transferStatus %>%
                            fct_recode("churched" = "fromChurch", 
                                        "deChurched" = "fromBreak",
                                        "blending" = "twoChurches", 
                                        "nonChurched" = "firstChurch"))
-oldAttenders %<>% select(- transferStatus)
-oldAttenders %<>%
+oldAttenders %<>% select(-transferStatus)
+oldAttenders %<>% rename("statusChild" = "childStatus",
+                         "statusTeen" = "teenStatus", 
+                         "statusYoung" = "youngStatus",
+                         "statusAdult" = "adultStatus")
+
+oldAttendersAdult <- oldAttenders %>%  
+  filter(ageGroup != "under5", responseType == "adult")
+
+oldAttendersAdult %<>%
   select(churchBackground,
-         statusChild = childStatus,
-         statusTeen = teenStatus,
-         statusYoung = youngStatus,
-         statusAdult = adultStatus,
+         statusChild,
+         statusTeen,
+         statusYoung,
+         statusAdult,
          class1)
 ```
 
@@ -88,9 +91,9 @@ determineFunkiness <- function(someData){
   return(someData)
 }
 
-oldAttenders %<>% determineFunkiness
-oldAttenders %<>% filter(!isFunky)
-oldAttenders %<>% select(-isFunky)
+oldAttendersAdult %<>% determineFunkiness
+oldAttendersAdult %<>% filter(!isFunky)
+oldAttendersAdult %<>% select(-isFunky)
 ```
 
 Okay this might get confusing: first, find all existing permutations. Then, find any permutations which **always** result in the same `class1` designation
@@ -104,7 +107,7 @@ Mode <- function(x) {
 }
 
 permutations <- 
-  oldAttenders %>%
+  oldAttendersAdult %>%
   group_by_at(vars(-class1)) %>% 
   mutate(mode = Mode(class1)) %>% 
   group_by_all %>%
@@ -128,10 +131,18 @@ permutations %>%
   # arrange(-`n()`, class1) %>% 
   # View
 ```
+### Try to Understand Contentious Cases
 
-* Find 'pure' cases
-* Find 'edge' cases
-* Are these labels wrong? complexNon seems incorrect.
+```{r analyseContentious}
+### Get the notes from contentious decisions
+decisionSummary %>% 
+  filter(percentage < 65) %>% 
+  select(-mode, - biggest, -percentage) %>% 
+  left_join(oldAttenders %>% 
+              filter(ageGroup != "under5", responseType == "adult") %>% 
+              select(-responseRef, - responseId, - responseType, -gender, - class2 , - university, - ethnicity, - plantName, - x10Years),
+            by = c("churchBackground", "statusChild", "statusTeen", "statusYoung", "statusAdult")) -> contentiousReasons
+```
 ```{r obsolete}
 # 
 # oldAttenders$class1 %>% is.na %>% sum
