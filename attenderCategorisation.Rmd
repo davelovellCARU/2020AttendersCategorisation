@@ -61,6 +61,9 @@ oldAttenders %<>% rename("statusChild" = "childStatus",
                          "statusTeen" = "teenStatus", 
                          "statusYoung" = "youngStatus",
                          "statusAdult" = "adultStatus")
+oldAttenders %<>% mutate(class1 = 
+                           fct_recode(class1,
+                                      "complexDe" = "copmlexDe"))
 oldAttenders %<>% mutate(ageGroup = 
                            fct_recode(ageGroup,
                                       "0-4" = "under5"))
@@ -74,13 +77,16 @@ oldAttendersAdult <- oldAttenders %>%
 oldAttendersAdult %<>% 
   filter(!(ageGroup %in% c("0-4", "5-10", "11-15") & # under 16 years old
            regularity %in% c("almostAlways", "halfTime", "fewTimes") & # attend at least a few times a year
-           transferReason == "grewUp")) # say they grew up here
+           transferReason == "fromYoung")) # say they grew up here
 
 ### Get rid of everyone who's certifiably 'churchedChurched'
 
 oldAttendersAdult %<>%
-  filter(all(c(statusChild, statusTeen, statusYoung, statusAdult) %in% c("church", NA)) &
-           churchBackground %in% c("blending", "churched"))
+  filter(!(statusChild %in% c("church", NA) &
+         statusTeen %in% c("church", NA) &
+         statusYoung %in% c("church", NA) &
+           statusAdult %in% c("church", NA) &
+           churchBackground %in% c("blending", "churched")))
 
 oldAttendersAdult %<>%
   select(churchBackground,
@@ -100,7 +106,7 @@ determineFunkiness <- function(someData){
     mutate(isFunky = 
              pmap_lgl(list(statusChild, statusTeen, statusYoung, statusAdult),
              ~ {
-               if(all(is.na(c(..1, ..2, ..3, ..4)))) NA else { 
+               if(all(is.na(c(..1, ..2, ..3, ..4)))) TRUE else { 
                c(..1, ..2, ..3, ..4) %>% 
                  (negate(is.na)) %>% 
                  which %>% 
@@ -160,6 +166,69 @@ decisionSummary %>%
               select(-responseRef, - responseId, - responseType, -gender, - class2 , - university, - ethnicity, - plantName, - x10Years),
             by = c("churchBackground", "statusChild", "statusTeen", "statusYoung", "statusAdult")) -> contentiousReasons
 ```
+
+### Categorising 2020 attenders
+
+```{r assignPlantIds}
+### Assign plantIds
+
+newAttenders %<>% mutate(ageGroup = 
+                           fct_recode(ageGroup,
+                                      "0-4" = "0-5"))
+newAttenders %>% 
+  rowwise() %>% 
+  mutate(plantId = stringr::str_sub(digest::sha1(location), 1, 10)) -> newAttenders
+```
+Get 'year started' and 'year returned'
+
+```{r yearStartedAndYearReturned}
+newAttenders %<>%
+  mutate(yearStarted = 
+           if(statusAdult %in% "notPart") statusAdultDetail
+         else NA)
+
+newAttenders %<>% 
+  mutate(yearReturned =
+           if(statusAdult %in% "stoppedHere") statusAdultDetail
+         else NA)
+```
+
+```{assign class1}
+### class1:broughtUp
+
+newAttenders %<>% determineFunkiness
+
+newAttenders %<>% 
+  mutate(class1 = 
+           if(!isFunky &
+              regularity %in% c("almostAlways", "halfTheTime", "fewTimesAYear") &
+              transferReason == "grewUp" & 
+              ageGroup %in% c("0-4", "5-9", "10-15")) "broughtUp"
+         else NA)
+
+### class1:churchedChurched
+newAttenders %<>%
+  mutate(class1 = 
+           if(!is.na(class1)) class1 
+         else if(!isFunky &
+                 statusChild %in% c("wasPart", NA) &
+                 statusTeen %in% c("wasPart", NA) &
+                 statusYoung %in% c("wasPart", NA) &
+                 statusAdult %in% c("wasPart") &
+                 churchBackground %in% c("churched", "blending")) "churchedChurched"
+         else NA
+           )
+
+### class1:simpleDe
+newAttenders %<>%
+  mutate(class1 = 
+           if(!is.na(class1)) class1 
+         else if(!isFunky &
+                 churchBackground %in% "deChurched") "simpleDe"
+         else NA
+           )
+```
+
 ```{r obsolete}
 # 
 # oldAttenders$class1 %>% is.na %>% sum
