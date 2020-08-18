@@ -15,6 +15,8 @@ library("here")
 library("magrittr")
 library("forcats")
 library("purrr")
+library("stringr")
+library("lubridate")
 ```
 ## Some Old Code
 
@@ -99,7 +101,7 @@ oldAttendersAdult %<>%
 
 And now a special function which gets the 'funky' church histories removed
 
-```{r removeFunkyHistories}
+```{r removeFunkyHistories, warning = FALSE}
 ## This function looks at the life-stage data and flags anything which has an NA _before_ the latest entry (i.e. incomplete data)
 determineFunkiness <- function(someData){
   someData %<>% 
@@ -117,6 +119,7 @@ determineFunkiness <- function(someData){
 oldAttendersAdult %<>% determineFunkiness
 oldAttendersAdult %<>% filter(!isFunky)
 oldAttendersAdult %<>% select(-isFunky)
+
 ```
 
 Okay this might get confusing: first, find all existing permutations. Then, find any permutations which **always** result in the same `class1` designation
@@ -154,6 +157,7 @@ permutations %>%
   # arrange(-`n()`, class1) %>% 
   # View
 ```
+
 ### Try to Understand Contentious Cases
 
 ```{r analyseContentious}
@@ -166,7 +170,37 @@ decisionSummary %>%
               select(-responseRef, - responseId, - responseType, -gender, - class2 , - university, - ethnicity, - plantName, - x10Years),
             by = c("churchBackground", "statusChild", "statusTeen", "statusYoung", "statusAdult")) -> contentiousReasons
 ```
+Complex cases are, unsurprisingly, harder to decode.
 
+```{r makeHistoryListColumn}
+makeHistoryList <- 
+  function(someData){
+    someData %>% 
+      rowwise %>% 
+      mutate(history = 
+               list(c(as.character(statusChild),
+                      as.character(statusTeen),
+                      as.character(statusYoung),
+                      as.character(statusAdult)))) %>% 
+      ungroup -> someData
+    return(someData)
+  }
+
+oldAttendersAdult %<>% makeHistoryList
+
+oldAttendersAdult %>% 
+  rowwise %>% 
+  filter(history %>% 
+           {
+             sum(is.na(unlist(.)) | unlist(.) %in% "(Missing)") < 3
+           }) %>% 
+  filter(history %>%
+           {
+             unlist(.) %>% 
+               {.[(max(which(!is.na(.)))- 1) : max(which(!is.na(.)))]} %>% 
+               {all(. %in% "noChurch")}
+           }) 
+```
 ### Categorising 2020 attenders
 
 ```{r assignPlantIds}
@@ -174,7 +208,29 @@ decisionSummary %>%
 
 newAttenders %<>% mutate(ageGroup = 
                            fct_recode(ageGroup,
-                                      "0-4" = "0-5"))
+                                      "0-4" = "0-5",
+                                      "5-10" = "6-10"))
+
+### Fix a bad error. Not sure why this happened:
+### Shouldn't be possible to save adult surveys as child, but also shouldn't be possible
+### to put wrong age on child surveys. I've checked all of these - they're all in fact adult surveys.
+
+newAttenders %<>% rowwise
+
+newAttenders %<>% 
+  mutate(responseType = 
+           if(!(ageGroup %in% c("0-4", "5-10")) |
+              (
+                ageGroup %in% c("(Missing)", NA) &
+               (
+                 !is.na(statusChild) |
+                 !is.na(statusTeen) |
+                 !is.na(statusYoung)|
+                 !is.na(statusAdult)
+               )
+               )) "adult"
+                else responseType)
+             
 newAttenders %>% 
   rowwise() %>% 
   mutate(plantId = stringr::str_sub(digest::sha1(location), 1, 10)) -> newAttenders
@@ -191,16 +247,26 @@ newAttenders %<>%
   mutate(yearReturned =
            if(statusAdult %in% "stoppedHere") statusAdultDetail
          else NA)
+
+### Clean those things
+
+newAttenders %<>% 
+  mutate(across(all_of(c("yearStarted", "yearReturned")),
+                ~ replace(., . == "", NA) %>% 
+                  str_remove_all("[^\\d[:space:]]") %>% 
+                  str_extract("[^[space]]{4}$") %>% 
+                  as.numeric)) 
 ```
 
-```{assign class1}
+```{r assignClass1ForAdults}
 ### class1:broughtUp
 
-newAttenders %<>% determineFunkiness
+newAttenders %<>% determineFunkiness()
 
 newAttenders %<>% 
   mutate(class1 = 
            if(!isFunky &
+              responseType == "adult" &
               regularity %in% c("almostAlways", "halfTheTime", "fewTimesAYear") &
               transferReason == "grewUp" & 
               ageGroup %in% c("0-4", "5-9", "10-15")) "broughtUp"
@@ -211,10 +277,11 @@ newAttenders %<>%
   mutate(class1 = 
            if(!is.na(class1)) class1 
          else if(!isFunky &
+                 responseType == "adult" &
                  statusChild %in% c("wasPart", NA) &
                  statusTeen %in% c("wasPart", NA) &
                  statusYoung %in% c("wasPart", NA) &
-                 statusAdult %in% c("wasPart") &
+                 statusAdult %in% c("wasPart", NA) &
                  churchBackground %in% c("churched", "blending")) "churchedChurched"
          else NA
            )
@@ -224,46 +291,130 @@ newAttenders %<>%
   mutate(class1 = 
            if(!is.na(class1)) class1 
          else if(!isFunky &
+                 responseType == "adult" &
                  churchBackground %in% "deChurched") "simpleDe"
          else NA
            )
+
+### class1:simpleNon
+newAttenders %<>% 
+  mutate(class1 = 
+           if(!is.na(class1)) class1
+         else if(!isFunky &
+                 responseType == "adult" &
+                 churchBackground %in% "nonChurched" &
+                 statusChild %in% c("notPart", NA) &
+                 statusTeen %in% c("notPart", NA) &
+                 statusYoung %in% c("notPart", NA) &
+                 statusAdult %in% c("notPart", NA) &
+                 (is.na(yearStarted) | yearStarted > 2000)) "simpleNon" 
+         else NA)
 ```
 
-```{r obsolete}
-# 
-# oldAttenders$class1 %>% is.na %>% sum
-# # none, cool
-# names(oldAttenders)
-# 
-# #:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-# # Things which feed into 'class1' (heck let's rename that)
-# 
-# oldAttenders %>% rename(background = "class1",
-#                      switchReason = "class2") -> oldAttenders
-# 
-# # *ahem*
-# # Things which feed into 'background' should be:
-# # 'transferStatus' and 'transferReason' and '__status'
-# 
-# #should have done this before:
-# oldAttenders %>%
-#   mutate(notes = 
-#            replace(notes,notes=="",NA)) -> oldAttenders
-# 
-# 
-# oldAttenders %>% 
-#   select(background,transferReason,contains("Status"),ageGroup) %>%
-#   #mutate(child = ageGroup %in% c("under5","5-10")) %>% 
-#   select(-ageGroup) %>%
-#   group_by_at(vars(-background)) %>%
-#   summarise(itWillWork = length(unique(background))<2,
-#             backgrounds = toString(unique(background)),
-#             cases = n()) %>% 
-#   (function(x){
-#     writeLines("How well will this work?")
-#     print(table(x["itWillWork"]))
-#     writeLines("\nCases which black box modelling will not work for:")
-#     return(x)
-#   }) %>% 
-#   filter(!itWillWork)
+```{r getStartDates}
+allLeaders <- readRDS("data/allLeaders.rdat")
+
+newAttenders %<>%
+  mutate(fxcName =
+           str_replace(fxcName, "Messy Church (?=[^-])",
+                       "Messy Church - "))
+
+## Where names match, put ID on attenders
+left_join(newAttenders, allLeaders %>% select(fxc, fxcId) %>% distinct,
+          by = c("fxcName" = "fxc")) -> newAttenders
+```
+
+Attach IDs manuall for others:
+
+```{r manualIDAttachment}
+namesAndIds <-
+  as_tibble(
+    matrix(
+      c(
+      c("Cafe Connect", "f63df641c9b" ),
+      c("Chatty Church Southsea St Luke", "f56f56b76de"),
+      c("Encompass", "f99bc8532cf"),
+      c("Little Fishes Fareham HT" , "fcdee06f8f1"),
+      c("Messy Church - Copnor", "f97c6ff218e"),
+      c("Messy Church - Hook w Warsash", "f0bf8df288c"),
+      c("Messy Church - Southsea St Lukes", "f19bddeae21"), 
+      c("Older Persons Bluewater", "fcae33a6cd6"), 
+      c("St Margarets", "ffec32c0180"),
+      c("Tea Service Sarisbury", "f7e8d28c572"), 
+      c("Tots in Tow Southsea St Lukes", "fcf545587ed"), 
+      c("Tots Praise Hook", "f98b9011146")
+      ),
+      nrow = 2
+    ) %>% 
+      t
+  )
+
+names(namesAndIds) <- c("fxc", "fxcId")
+
+# Will this work?
+
+newAttenders %>% 
+  rowwise %>% 
+  mutate(fxcId =
+           replace(fxcId,
+                   is.na(fxcId) & (fxcName %in% namesAndIds[["fxc"]]),
+                   namesAndIds[["fxcId"]][ namesAndIds[["fxc"]] %in% fxcName ])) %>% 
+  select(-plantId) -> newAttenders
+
+```
+
+Now Join the start dates
+
+```{r joinStartDates}
+
+## Finally putting start dates on these attenders!
+allLeaders %>% 
+  filter(!is.na(info_startDate)) %>% 
+  group_by(fxcId) %>%
+  mutate(is_min = as.numeric(info_startDate) == min(as.numeric(info_startDate))) %>% 
+  filter(is_min) %>% 
+  select(fxcId, info_startDate) %>% 
+  distinct %>% 
+  right_join(newAttenders) -> newAttenders
+```
+
+## Did Returners Return to FxC?
+
+It's guess work, but we inform guesses by comparing start date of fxC with date of return.
+
+```{r makeCameBackHereCol}
+newAttenders %<>% mutate(cameBackHere = coalesce(yearStarted, yearReturned) > as.numeric( str_sub(info_startDate, 1 , 4))) 
+```
+
+### Classify Blenders
+
+If someone's blending and the church they returned to is (probably) this fxC, we'll list them as simpleDe. If they returned 'to Church' before this fxC began, they must be complex DeChurched. 
+
+```{r classifyBlenders}
+newAttenders %>%
+  rowwise %>% 
+  mutate(class1 = 
+           {
+             if (!is.na(class1)) class1
+             else if ((statusChild %in% "stoppedHere" |
+                     statusTeen %in% "stoppedHere" |
+                     statusYoung %in% "stoppedHere" |
+                     statusAdult %in% "stoppedHere") &
+                     churchBackground == "blending"){
+               if (cameBackHere %in% TRUE) "simpleDe"
+               else if (cameBackHere %in% FALSE) "complexDe"
+               else NA
+             } else NA }) -> newAttenders
+
+newAttenders %<>% makeHistoryList
+
+newAttenders %<>% rowwise
+
+
+#### Can't remember what I was trying to do, unsure if it's something that ought to be done.
+newAttenders %>% 
+  mutate(class1 = 
+           if (churchBackground == "blending" !isFunky & sum(is.na(unlist(history))) < 3){
+             if (all(unlist(history)[ (max(which(!is.na(history))) - 1) : max(which(!is.na(history))) ]) %in% "wasPart") 
+           })
 ```
